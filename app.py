@@ -5,10 +5,10 @@ from io import BytesIO
 from tqdm import tqdm
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
-# === FUNZIONE PRINCIPALE ===
 def genera_report(file_attivita, file_clienti):
-    # Lettura file
+    # --- Lettura file ---
     attivita = pd.read_excel(file_attivita)
     tabella = pd.read_excel(file_clienti, header=None, skiprows=3)
     tabella.columns = tabella.iloc[0]
@@ -16,7 +16,7 @@ def genera_report(file_attivita, file_clienti):
     tabella = tabella.rename(columns=lambda x: str(x).strip())
     attivita.columns = attivita.columns.str.strip()
 
-    # Normalizza nomi
+    # --- Normalizza nomi ---
     def normalize_name(x):
         if pd.isna(x): return ""
         x = str(x).lower().replace(".", " ").replace("*", " ").replace(",", " ")
@@ -24,7 +24,7 @@ def genera_report(file_attivita, file_clienti):
     tabella["Cliente_n"] = tabella["Cliente"].apply(normalize_name)
     attivita["NomeSoggetto_n"] = attivita["NomeSoggetto"].apply(normalize_name)
 
-    # Normalizza tipo
+    # --- Tipo cliente ---
     if "Tipo" in tabella.columns:
         def fix_tipo(x):
             x = str(x).strip().capitalize()
@@ -35,14 +35,14 @@ def genera_report(file_attivita, file_clienti):
     else:
         tabella["Tipo"] = "Amministratori"
 
-    # Priorità attività
+    # --- Priorità ---
     priorita = {
         "04 RICHIESTE": 1, "06 PREVENTIVI": 2, "03 INCONTRI": 3,
         "07 DELIBERE": 4, "05 SOPRALLUOGHI": 5, "01 TELEFONATE": 6, "02 APPUNTAMENTI": 7
     }
     attivita["Priorita"] = attivita["Classe Attività"].map(priorita).fillna(999)
 
-    # Matching clienti ↔ attività
+    # --- Matching ---
     match_rows = []
     progress = st.progress(0)
     for i, (_, row) in enumerate(tabella.iterrows()):
@@ -89,6 +89,7 @@ def genera_report(file_attivita, file_clienti):
                 "Tipo": tipo
             })
 
+    # --- Attività senza corrispondenza ---
     clienti_tabella = set(tabella["Cliente_n"].dropna().unique())
     no_match = attivita[~attivita["NomeSoggetto_n"].isin(clienti_tabella)].copy()
     if not no_match.empty:
@@ -97,11 +98,7 @@ def genera_report(file_attivita, file_clienti):
             .groupby("NomeSoggetto", as_index=False)
             .last()
         )
-        def da_riassegnare(row):
-            anno, mese = int(row["Anno"]), int(row["Mese"])
-            diff = (2025 - anno) * 12 + (11 - mese)
-            return "Sì"  # Tutti da riassegnare
-        no_match_grouped["Da riassegnare"] = no_match_grouped.apply(da_riassegnare, axis=1)
+        no_match_grouped["Da riassegnare"] = "Sì"
         no_match_grouped["Sede"] = no_match_grouped["Sede"]
         no_match_grouped["Responsabile gestionale"] = no_match_grouped["Responsabile"]
         no_match_grouped["Cliente"] = no_match_grouped["NomeSoggetto"]
@@ -116,7 +113,7 @@ def genera_report(file_attivita, file_clienti):
     if not no_match_grouped.empty:
         database = pd.concat([database, no_match_grouped[database.columns]], ignore_index=True)
 
-    # Format euro
+    # --- Formatta valori euro ---
     def format_euro(x):
         try:
             val = float(str(x).replace(",", ".").replace("€", "").strip())
@@ -126,7 +123,7 @@ def genera_report(file_attivita, file_clienti):
     for col in ["PREVENTIVATO€", "DELIBERATO€", "FATTURATO€", "INCASSATO€"]:
         database[col] = database[col].apply(format_euro)
 
-    # Output Excel in memoria
+    # --- Scrittura file Excel ---
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         database.to_excel(writer, sheet_name="Database", index=False)
@@ -138,7 +135,41 @@ def genera_report(file_attivita, file_clienti):
         for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x: x[0]):
             grp = grp[col_order].sort_values("Cliente")
             grp.to_excel(writer, sheet_name=tipo.capitalize(), index=False)
-    return output.getvalue()
+        writer.close()
+
+    # --- Formattazione estetica ---
+    output.seek(0)
+    wb = load_workbook(output)
+    thin = Side(border_style="thin", color="D9D9D9")
+    header_fill = PatternFill(start_color="004C97", end_color="004C97", fill_type="solid")
+    alt_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+
+    for ws in wb.worksheets:
+        ws.auto_filter.ref = ws.dimensions
+        for col_cells in ws.columns:
+            max_len = max(len(str(c.value)) if c.value else 0 for c in col_cells)
+            ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 40)
+
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for row in ws.iter_rows(min_row=2):
+            if row[0].row % 2 == 0:
+                for c in row:
+                    c.fill = alt_fill
+            for c in row:
+                c.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+
+    # Apri direttamente foglio "Amministratori"
+    if "Amministratori" in wb.sheetnames:
+        wb.active = wb.sheetnames.index("Amministratori")
+
+    final_output = BytesIO()
+    wb.save(final_output)
+    return final_output.getvalue()
+
 
 # === INTERFACCIA STREAMLIT ===
 st.set_page_config(page_title="Generatore Report Attività", page_icon="📊")
@@ -154,7 +185,7 @@ if file_att and file_tab:
             result = genera_report(file_att, file_tab)
         st.success("✅ File generato con successo!")
         st.download_button(
-            label="⬇️ Scarica file Excel",
+            label="⬇️ Scarica file Excel formattato",
             data=result,
             file_name="output_attivita_finale.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
