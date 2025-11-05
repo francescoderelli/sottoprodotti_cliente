@@ -139,9 +139,10 @@ def genera_report(file_attivita, file_clienti):
             "Ultima attività", "Da riassegnare", "PREVENTIVATO€", "DELIBERATO€",
             "FATTURATO€", "INCASSATO€"
         ]
-        for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x: x[0]):
+        for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x: str(x[0])):
+            nome_foglio = str(tipo).strip().capitalize() if str(tipo).strip() else "SenzaTipo"
             grp = grp[col_order].sort_values("Cliente")
-            grp.to_excel(writer, sheet_name=tipo.capitalize(), index=False)
+            grp.to_excel(writer, sheet_name=nome_foglio, index=False)
         writer.close()
 
     # --- Formattazione estetica ---
