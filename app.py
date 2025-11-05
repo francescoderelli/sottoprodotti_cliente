@@ -16,6 +16,10 @@ def genera_report(file_attivita, file_clienti):
     tabella = tabella.rename(columns=lambda x: str(x).strip())
     attivita.columns = attivita.columns.str.strip()
 
+    # --- Sostituisci NaN con stringhe vuote ---
+    attivita = attivita.replace({np.nan: ""})
+    tabella = tabella.replace({np.nan: ""})
+
     # --- Normalizza nomi ---
     def normalize_name(x):
         if pd.isna(x): return ""
@@ -113,6 +117,9 @@ def genera_report(file_attivita, file_clienti):
     if not no_match_grouped.empty:
         database = pd.concat([database, no_match_grouped[database.columns]], ignore_index=True)
 
+    # --- Pulisci eventuali NaN ---
+    database = database.replace({np.nan: ""})
+
     # --- Formatta valori euro ---
     def format_euro(x):
         try:
@@ -162,7 +169,7 @@ def genera_report(file_attivita, file_clienti):
             for c in row:
                 c.border = Border(top=thin, bottom=thin, left=thin, right=thin)
 
-    # Apri direttamente foglio "Amministratori"
+    # --- Apri direttamente foglio Amministratori ---
     if "Amministratori" in wb.sheetnames:
         wb.active = wb.sheetnames.index("Amministratori")
 
@@ -170,14 +177,28 @@ def genera_report(file_attivita, file_clienti):
     wb.save(final_output)
     return final_output.getvalue()
 
-
 # === INTERFACCIA STREAMLIT ===
 st.set_page_config(page_title="Generatore Report Attività", page_icon="📊")
 st.image("https://www.ediliziacrobatica.com/wp-content/uploads/2022/05/logo.svg", width=250)
 st.title("🏗️ Generatore Report Attività Clienti")
 
-file_att = st.file_uploader("📘 Carica il file attività (attivita_2025.xlsx)", type=["xlsx"])
-file_tab = st.file_uploader("📗 Carica il file tabella clienti (Tabella_Clienti.xlsx)", type=["xlsx"])
+st.markdown("""
+### 📘 Carica il file delle attività
+Scaricalo dalla **Dashboard Commerciale → Sottoprodotti → Tab Grafici Attività**  
+➡️ Premi **Crea Excel** dopo aver atteso il caricamento dei dati,  
+e seleziona **l'ultimo elenco prima del grafico “Delibere”**.
+
+---
+
+### 📗 Carica il file dei clienti
+Scaricalo dalla **Dashboard Commerciale → Riepilogo Clienti**,  
+impostando il periodo **dal 2017 ad oggi**,  
+e scarica Excel da **“Tabella Clienti (no filtro data)”** in fondo alla pagina,  
+dopo aver atteso il caricamento dei dati.
+""")
+
+file_att = st.file_uploader("📘 Seleziona il file delle attività (.xlsx)", type=["xlsx"])
+file_tab = st.file_uploader("📗 Seleziona la tabella clienti (.xlsx)", type=["xlsx"])
 
 if file_att and file_tab:
     if st.button("🚀 Crea file di output"):
