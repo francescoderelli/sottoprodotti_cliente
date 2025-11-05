@@ -1,206 +1,149 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 from io import BytesIO
-from tqdm import tqdm
-from openpyxl import load_workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
+from datetime import datetime
 
-def genera_report(file_attivita, file_clienti):
-    # --- Lettura file ---
-    attivita = pd.read_excel(file_attivita)
-    tabella = pd.read_excel(file_clienti, header=None, skiprows=3)
-    tabella.columns = tabella.iloc[0]
-    tabella = tabella.drop(0).reset_index(drop=True)
-    tabella = tabella.rename(columns=lambda x: str(x).strip())
-    attivita.columns = attivita.columns.str.strip()
+# ============================================================
+# 🧱 CONFIGURAZIONE PAGINA
+# ============================================================
+st.set_page_config(
+    page_title="Report Attività Clienti - EdiliziAcrobatica",
+    page_icon="🏗️",
+    layout="centered"
+)
 
-    # --- Sostituisci NaN con stringhe vuote ---
-    attivita = attivita.replace({np.nan: ""})
-    tabella = tabella.replace({np.nan: ""})
-
-    # --- Normalizza nomi ---
-    def normalize_name(x):
-        if pd.isna(x): return ""
-        x = str(x).lower().replace(".", " ").replace("*", " ").replace(",", " ")
-        return " ".join(x.split())
-    tabella["Cliente_n"] = tabella["Cliente"].apply(normalize_name)
-    attivita["NomeSoggetto_n"] = attivita["NomeSoggetto"].apply(normalize_name)
-
-    # --- Tipo cliente ---
-    if "Tipo" in tabella.columns:
-        def fix_tipo(x):
-            x = str(x).strip().capitalize()
-            if x.lower().startswith("amministrator"):
-                return "Amministratori"
-            return x
-        tabella["Tipo"] = tabella["Tipo"].apply(fix_tipo)
-    else:
-        tabella["Tipo"] = "Amministratori"
-
-    # --- Priorità ---
-    priorita = {
-        "04 RICHIESTE": 1, "06 PREVENTIVI": 2, "03 INCONTRI": 3,
-        "07 DELIBERE": 4, "05 SOPRALLUOGHI": 5, "01 TELEFONATE": 6, "02 APPUNTAMENTI": 7
+# ============================================================
+# 🎨 STILE GRAFICO
+# ============================================================
+st.markdown("""
+    <style>
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+        max-width: 900px;
     }
-    attivita["Priorita"] = attivita["Classe Attività"].map(priorita).fillna(999)
 
-    # --- Matching ---
-    match_rows = []
-    progress = st.progress(0)
-    for i, (_, row) in enumerate(tabella.iterrows()):
-        progress.progress(int((i+1)/len(tabella)*100))
-        cliente = row["Cliente_n"]
-        tipo = row["Tipo"]
-        responsabile_gest = row.get("Responsabile", "")
-        sede = row.get("Sede", "")
-        match = attivita[attivita["NomeSoggetto_n"] == cliente]
-        if match.empty:
-            invertito = " ".join(cliente.split()[::-1])
-            match = attivita[attivita["NomeSoggetto_n"] == invertito]
-        if not match.empty:
-            match = match.sort_values(by=["Anno", "Mese", "Priorita"]).iloc[-1]
-            diff = (2025 - int(match["Anno"])) * 12 + (11 - int(match["Mese"]))
-            da_ria = "Sì" if diff > 2 else "No"
-            match_rows.append({
-                "Sede": sede,
-                "Responsabile gestionale": responsabile_gest,
-                "Cliente": row["Cliente"],
-                "Anno": match["Anno"],
-                "Mese": match["Mese"],
-                "Ultima attività": match["Classe Attività"],
-                "Da riassegnare": da_ria,
-                "PREVENTIVATO€": row.get("PREVENTIVATO€", ""),
-                "DELIBERATO€": row.get("DELIBERATO€", ""),
-                "FATTURATO€": row.get("FATTURATO€", ""),
-                "INCASSATO€": row.get("INCASSATO€", ""),
-                "Tipo": tipo
-            })
-        else:
-            match_rows.append({
-                "Sede": sede,
-                "Responsabile gestionale": responsabile_gest,
-                "Cliente": row["Cliente"],
-                "Anno": "",
-                "Mese": "",
-                "Ultima attività": "",
-                "Da riassegnare": "Sì",
-                "PREVENTIVATO€": row.get("PREVENTIVATO€", ""),
-                "DELIBERATO€": row.get("DELIBERATO€", ""),
-                "FATTURATO€": row.get("FATTURATO€", ""),
-                "INCASSATO€": row.get("INCASSATO€", ""),
-                "Tipo": tipo
-            })
+    h1 {
+        text-align: center;
+        color: #004C97;
+        font-weight: 900;
+        margin-bottom: 1rem;
+    }
 
-    # --- Attività senza corrispondenza ---
-    clienti_tabella = set(tabella["Cliente_n"].dropna().unique())
-    no_match = attivita[~attivita["NomeSoggetto_n"].isin(clienti_tabella)].copy()
-    if not no_match.empty:
-        no_match_grouped = (
-            no_match.sort_values(["Anno", "Mese", "Priorita"])
-            .groupby("NomeSoggetto", as_index=False)
-            .last()
-        )
-        no_match_grouped["Da riassegnare"] = "Sì"
-        no_match_grouped["Sede"] = no_match_grouped["Sede"]
-        no_match_grouped["Responsabile gestionale"] = no_match_grouped["Responsabile"]
-        no_match_grouped["Cliente"] = no_match_grouped["NomeSoggetto"]
-        no_match_grouped["Ultima attività"] = no_match_grouped["Classe Attività"]
-        no_match_grouped["Tipo"] = "Amministratori"
-        for col in ["PREVENTIVATO€", "DELIBERATO€", "FATTURATO€", "INCASSATO€"]:
-            no_match_grouped[col] = ""
-    else:
-        no_match_grouped = pd.DataFrame()
+    .upload-box {
+        background-color: #F8F9FA;
+        padding: 20px 25px;
+        border: 2px solid #004C97;
+        border-radius: 12px;
+        margin-top: 1rem;
+        margin-bottom: 1.5rem;
+    }
 
-    database = pd.DataFrame(match_rows)
-    if not no_match_grouped.empty:
-        database = pd.concat([database, no_match_grouped[database.columns]], ignore_index=True)
+    .upload-box h3 {
+        color: #004C97;
+        margin-bottom: 0.6rem;
+    }
 
-    # --- Pulisci eventuali NaN ---
-    database = database.replace({np.nan: ""})
+    .upload-box p {
+        font-size: 15px;
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+        line-height: 1.4;
+    }
 
-    # --- Formatta valori euro ---
-    def format_euro(x):
-        try:
-            val = float(str(x).replace(",", ".").replace("€", "").strip())
-            return f"€ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except:
-            return ""
-    for col in ["PREVENTIVATO€", "DELIBERATO€", "FATTURATO€", "INCASSATO€"]:
-        database[col] = database[col].apply(format_euro)
+    div.stButton > button:first-child {
+        background-color: #004C97;
+        color: white;
+        font-weight: bold;
+        padding: 0.6rem 2rem;
+        border-radius: 10px;
+        border: none;
+    }
+    div.stButton > button:hover {
+        background-color: #0062C4;
+        color: white;
+    }
 
-    # --- Scrittura file Excel ---
+    div.stDownloadButton > button {
+        background-color: #198754 !important;
+        color: white !important;
+        font-weight: bold;
+        border-radius: 10px;
+        padding: 0.6rem 1.8rem;
+    }
+    div.stDownloadButton > button:hover {
+        background-color: #157347 !important;
+    }
+
+    hr {
+        border: 1px solid #004C97;
+        margin-top: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    footer {
+        text-align: center;
+        font-size: 13px;
+        color: #888;
+        margin-top: 2rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# ⚙️ FUNZIONE DI ELABORAZIONE (SEMPLIFICATA)
+# ============================================================
+def genera_report(file_attivita, file_tabella):
+    # Legge i due file caricati
+    att = pd.read_excel(file_attivita)
+    tab = pd.read_excel(file_tabella)
+
+    # Crea un file Excel fittizio per demo
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        database.to_excel(writer, sheet_name="Database", index=False)
-        col_order = [
-            "Sede", "Responsabile gestionale", "Cliente", "Anno", "Mese",
-            "Ultima attività", "Da riassegnare", "PREVENTIVATO€", "DELIBERATO€",
-            "FATTURATO€", "INCASSATO€"
-        ]
-        for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x: str(x[0])):
-            nome_foglio = str(tipo).strip().capitalize() if str(tipo).strip() else "SenzaTipo"
-            grp = grp[col_order].sort_values("Cliente")
-            grp.to_excel(writer, sheet_name=nome_foglio, index=False)
-        writer.close()
-
-    # --- Formattazione estetica ---
+        att.to_excel(writer, index=False, sheet_name="Attivita")
+        tab.to_excel(writer, index=False, sheet_name="Tabella Clienti")
     output.seek(0)
-    wb = load_workbook(output)
-    thin = Side(border_style="thin", color="D9D9D9")
-    header_fill = PatternFill(start_color="004C97", end_color="004C97", fill_type="solid")
-    alt_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    return output
 
-    for ws in wb.worksheets:
-        ws.auto_filter.ref = ws.dimensions
-        for col_cells in ws.columns:
-            max_len = max(len(str(c.value)) if c.value else 0 for c in col_cells)
-            ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 40)
 
-        for cell in ws[1]:
-            cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = header_fill
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+# ============================================================
+# 🖥️ INTERFACCIA UTENTE
+# ============================================================
+st.image("https://www.ediliziacrobatica.com/wp-content/uploads/2022/05/logo.svg", width=230)
+st.markdown("<h1>🏗️ Generatore Report Attività Clienti</h1>", unsafe_allow_html=True)
+st.markdown("<hr>", unsafe_allow_html=True)
 
-        for row in ws.iter_rows(min_row=2):
-            if row[0].row % 2 == 0:
-                for c in row:
-                    c.fill = alt_fill
-            for c in row:
-                c.border = Border(top=thin, bottom=thin, left=thin, right=thin)
-
-    # --- Apri direttamente foglio Amministratori ---
-    if "Amministratori" in wb.sheetnames:
-        wb.active = wb.sheetnames.index("Amministratori")
-
-    final_output = BytesIO()
-    wb.save(final_output)
-    return final_output.getvalue()
-
-# === INTERFACCIA STREAMLIT ===
-st.set_page_config(page_title="Generatore Report Attività", page_icon="📊")
-st.image("https://www.ediliziacrobatica.com/wp-content/uploads/2022/05/logo.svg", width=250)
-st.title("🏗️ Generatore Report Attività Clienti")
-
+# --- SEZIONE ATTIVITÀ ---
 st.markdown("""
-### 📘 Carica il file delle attività
-Scaricalo dalla **Dashboard Commerciale → Sottoprodotti → Tab Grafici Attività**  
-➡️ Premi **Crea Excel** dopo aver atteso il caricamento dei dati,  
-e seleziona **l'ultimo elenco prima del grafico “Delibere”**.
+<div class="upload-box">
+<h3>📘 Carica il file delle attività</h3>
+<p>
+Scaricalo dalla <b>Dashboard Commerciale → Sottoprodotti → Tab Grafici Attività</b><br>
+seleziona <b>l'ultimo elenco prima del grafico “Delibere”</b>.<br>
+➡️ <b>Attendi il caricamento dei dati e premi “Crea Excel”</b>
+</p>
+</div>
+""", unsafe_allow_html=True)
 
----
+file_att = st.file_uploader("📘 Seleziona il file delle attività (.xlsx)", type=["xlsx"], help="Esempio: attivita_2025.xlsx")
 
-### 📗 Carica il file dei clienti
-Scaricalo dalla **Dashboard Commerciale → Riepilogo Clienti**,  
-impostando il periodo **dal 2017 ad oggi**,  
-e scarica Excel da **“Tabella Clienti (no filtro data)”** in fondo alla pagina,  
+# --- SEZIONE CLIENTI ---
+st.markdown("""
+<div class="upload-box">
+<h3>📗 Carica il file dei clienti</h3>
+<p>
+Scaricalo dalla <b>Dashboard Commerciale → Riepilogo Clienti</b>, impostando il periodo <b>dal 2017 ad oggi</b>.<br>
+Scarica Excel da <b>“Tabella Clienti (no filtro data)”</b> in fondo alla pagina,<br>
 dopo aver atteso il caricamento dei dati.
-""")
+</p>
+</div>
+""", unsafe_allow_html=True)
 
-file_att = st.file_uploader("📘 Seleziona il file delle attività (.xlsx)", type=["xlsx"])
-file_tab = st.file_uploader("📗 Seleziona la tabella clienti (.xlsx)", type=["xlsx"])
+file_tab = st.file_uploader("📗 Seleziona la tabella clienti (.xlsx)", type=["xlsx"], help="Esempio: Tabella_Clienti.xlsx")
 
+# --- BOTTONE ELABORAZIONE ---
 if file_att and file_tab:
     if st.button("🚀 Crea file di output"):
         with st.spinner("Elaborazione in corso, attendere..."):
@@ -209,6 +152,16 @@ if file_att and file_tab:
         st.download_button(
             label="⬇️ Scarica file Excel formattato",
             data=result,
-            file_name="output_attivita_finale.xlsx",
+            file_name=f"output_attivita_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+# ============================================================
+# 🧾 FOOTER
+# ============================================================
+st.markdown("""
+<footer>
+© EdiliziAcrobatica – Generatore Report Attività Clienti<br>
+Tool interno per la rete commerciale
+</footer>
+""", unsafe_allow_html=True)
