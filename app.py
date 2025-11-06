@@ -124,64 +124,67 @@ if file_att and file_tab:
     progress_text = st.empty()
     progress_bar = st.progress(0)
 
-    # Ottimizzato: pre-copia delle colonne per ridurre lookup
-    clienti = tab[["Cliente", "Cliente_n", "Tipo", "Sede", "Responsabile",
-                   "PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"]].fillna("")
-
-    for i, r in enumerate(clienti.itertuples(index=False), 1):
-        cliente_norm = r.Cliente_n
+    # ==========================
+    #  Match intelligente
+    # ==========================
+    for i, r in tab.iterrows():
+        cliente_norm = r["Cliente_n"]
         att_cli = att[att["NomeSoggetto_n"] == cliente_norm]
+
+        # Prova nome invertito
         if att_cli.empty and cliente_norm:
             invertito = " ".join(cliente_norm.split()[::-1])
             att_cli = att[att["NomeSoggetto_n"] == invertito]
+
+        # Prova similitudine fuzzy (con soglia bassa per “Facincani” e “A.CON”)
         if att_cli.empty and cliente_norm:
-            simili = get_close_matches(cliente_norm, tutti_nomi_att, n=1, cutoff=0.85)
+            simili = get_close_matches(cliente_norm, tutti_nomi_att, n=1, cutoff=0.65)
             if simili:
                 att_cli = att[att["NomeSoggetto_n"] == simili[0]]
 
+        # Crea record
         if not att_cli.empty:
             att_cli = att_cli.sort_values(["Anno", "Mese", "Priorita"]).iloc[-1]
             anno_att, mese_att = int(att_cli["Anno"]), int(att_cli["Mese"])
             diff_mesi = (2025 - anno_att) * 12 + (11 - mese_att)
             da_ria = "Sì" if diff_mesi > 2 else "No"
             righe_output.append({
-                "Sede": r.Sede,
-                "Responsabile gestionale": r.Responsabile,
-                "Cliente": r.Cliente,
+                "Sede": r.get("Sede", ""),
+                "Responsabile gestionale": r.get("Responsabile", ""),
+                "Cliente": r.get("Cliente", ""),
                 "Anno": anno_att,
                 "Mese": mese_att,
                 "Ultima attività": att_cli["Classe Attività"],
                 "Da riassegnare": da_ria,
-                "PREVENTIVATO€": r._6,
-                "DELIBERATO€": r._7,
-                "FATTURATO€": r._8,
-                "INCASSATO€": r._9,
-                "Tipo": r.Tipo
+                "PREVENTIVATO€": r.get("PREVENTIVATO€", ""),
+                "DELIBERATO€": r.get("DELIBERATO€", ""),
+                "FATTURATO€": r.get("FATTURATO€", ""),
+                "INCASSATO€": r.get("INCASSATO€", ""),
+                "Tipo": r.get("Tipo", "")
             })
         else:
             righe_output.append({
-                "Sede": r.Sede,
-                "Responsabile gestionale": r.Responsabile,
-                "Cliente": r.Cliente,
+                "Sede": r.get("Sede", ""),
+                "Responsabile gestionale": r.get("Responsabile", ""),
+                "Cliente": r.get("Cliente", ""),
                 "Anno": "",
                 "Mese": "",
                 "Ultima attività": "",
                 "Da riassegnare": "Sì",
-                "PREVENTIVATO€": r._6,
-                "DELIBERATO€": r._7,
-                "FATTURATO€": r._8,
-                "INCASSATO€": r._9,
-                "Tipo": r.Tipo
+                "PREVENTIVATO€": r.get("PREVENTIVATO€", ""),
+                "DELIBERATO€": r.get("DELIBERATO€", ""),
+                "FATTURATO€": r.get("FATTURATO€", ""),
+                "INCASSATO€": r.get("INCASSATO€", ""),
+                "Tipo": r.get("Tipo", "")
             })
 
-        if i % 10 == 0 or i == totale:
-            progress_bar.progress(i / totale)
-            progress_text.text(f"🔎 Elaborazione clienti... ({i}/{totale})")
+        if i % 10 == 0 or i == totale - 1:
+            progress_bar.progress((i + 1) / totale)
+            progress_text.text(f"🔎 Elaborazione clienti... ({i + 1}/{totale})")
 
-    # Attività senza match
+    # Attività senza match (Amministratori da assegnare)
     clienti_norm = set(tab["Cliente_n"].dropna().unique())
     att_no_match = att[~att["NomeSoggetto_n"].isin(clienti_norm)].copy()
-
     if not att_no_match.empty:
         att_no_match = (
             att_no_match.sort_values(["Anno", "Mese", "Priorita"])
@@ -203,18 +206,18 @@ if file_att and file_tab:
     progress_bar.empty()
     progress_text.empty()
 
-    # =====================
+    # ==========================
     # DataFrame finale
-    # =====================
+    # ==========================
     database = pd.DataFrame(righe_output).replace({np.nan: ""})
     for c in ["PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"]:
         database[c] = database[c].apply(to_float_euro).apply(format_euro)
 
     st.success("✅ Analisi completata! Preparazione file Excel...")
 
-    # =====================
-    # Esporta Excel
-    # =====================
+    # ==========================
+    # Esporta Excel formattato
+    # ==========================
     output = BytesIO()
     col_order = [
         "Sede","Responsabile gestionale","Cliente","Anno","Mese",
@@ -228,9 +231,9 @@ if file_att and file_tab:
             nome = str(tipo).strip().capitalize() or "Senzatipo"
             grp[col_order].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
 
-    # =====================
+    # ==========================
     # Formattazione Excel
-    # =====================
+    # ==========================
     output.seek(0)
     wb = load_workbook(output)
     thin = Side(border_style="thin", color="D9D9D9")
