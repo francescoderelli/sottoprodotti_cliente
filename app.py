@@ -67,18 +67,15 @@ def format_euro(x):
 if file_att and file_tab:
     st.info("⏳ Elaborazione in corso... Attendere qualche secondo...")
 
-    # Carico i file
     att = pd.read_excel(file_att)
     tab_raw = pd.read_excel(file_tab, header=None, skiprows=3)
     tab_raw.columns = tab_raw.iloc[0]
     tab = tab_raw.drop(0).reset_index(drop=True)
     tab = tab.rename(columns={"macroarea": "Macroarea"})
 
-    # Normalizzo
     att["NomeSoggetto_n"] = att["NomeSoggetto"].apply(normalize_name)
     tab["Cliente_n"] = tab["Cliente"].apply(normalize_name)
 
-    # Tipo
     if "Tipo" in tab.columns:
         def fix_tipo(x):
             x = str(x).strip().capitalize()
@@ -89,7 +86,6 @@ if file_att and file_tab:
     else:
         tab["Tipo"] = "Amministratori"
 
-    # Priorità
     priorita = {
         "04 RICHIESTE": 1,
         "06 PREVENTIVI": 2,
@@ -102,10 +98,6 @@ if file_att and file_tab:
     att["Priorita"] = att["Classe Attività"].map(priorita).fillna(999)
 
     righe_output = []
-
-    # =====================
-    # Matching completo
-    # =====================
     tutti_nomi_att = att["NomeSoggetto_n"].unique().tolist()
 
     for _, r in tab.iterrows():
@@ -114,21 +106,15 @@ if file_att and file_tab:
         sede_cli = r.get("Sede", "")
         resp_gest = r.get("Responsabile", "")
 
-        # 1. Match diretto
         att_cli = att[att["NomeSoggetto_n"] == cliente_norm]
-
-        # 2. Match invertito
         if att_cli.empty and cliente_norm:
             invertito = " ".join(cliente_norm.split()[::-1])
             att_cli = att[att["NomeSoggetto_n"] == invertito]
-
-        # 3. Match fuzzy
         if att_cli.empty and cliente_norm:
             simili = get_close_matches(cliente_norm, tutti_nomi_att, n=1, cutoff=0.85)
             if simili:
                 att_cli = att[att["NomeSoggetto_n"] == simili[0]]
 
-        # ========== Se trovato ==========
         if not att_cli.empty:
             att_cli = att_cli.sort_values(["Anno", "Mese", "Priorita"]).iloc[-1]
             anno_att, mese_att = int(att_cli["Anno"]), int(att_cli["Mese"])
@@ -149,7 +135,6 @@ if file_att and file_tab:
                 "Tipo": tipo_cli
             })
         else:
-            # Nessuna attività
             righe_output.append({
                 "Sede": sede_cli,
                 "Responsabile gestionale": resp_gest,
@@ -165,9 +150,7 @@ if file_att and file_tab:
                 "Tipo": tipo_cli
             })
 
-    # =====================
-    # Attività senza match → Amministratori
-    # =====================
+    # Attività non matchate → Amministratori
     clienti_norm = set(tab["Cliente_n"].dropna().unique())
     att_no_match = att[~att["NomeSoggetto_n"].isin(clienti_norm)].copy()
 
@@ -177,12 +160,7 @@ if file_att and file_tab:
             .groupby("NomeSoggetto", as_index=False)
             .last()
         )
-        def da_ria_att(row):
-            anno = int(row["Anno"])
-            mese = int(row["Mese"])
-            diff = (2025 - anno) * 12 + (11 - mese)
-            return "Sì" if diff > 2 else "Sì"  # tutti sì come richiesto
-        att_no_match["Da riassegnare"] = att_no_match.apply(da_ria_att, axis=1)
+        att_no_match["Da riassegnare"] = "Sì"
         att_no_match["Responsabile gestionale"] = att_no_match["Responsabile"]
         att_no_match["Cliente"] = att_no_match["NomeSoggetto"]
         att_no_match["Ultima attività"] = att_no_match["Classe Attività"]
@@ -213,24 +191,4 @@ if file_att and file_tab:
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         database.to_excel(writer, sheet_name="Database", index=False)
-        for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x: str(x[0])):
-            nome = str(tipo).strip().capitalize() or "Senzatipo"
-            grp[col_order].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
-
-    # =====================
-    # Formattazione Excel
-    # =====================
-    output.seek(0)
-    wb = load_workbook(output)
-    thin = Side(border_style="thin", color="D9D9D9")
-    header_fill = PatternFill(start_color="004C97", end_color="004C97", fill_type="solid")
-    alt_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-    red_fill = PatternFill(start_color="FF9999", end_color="FF9999", fill_type="solid")
-    green_fill = PatternFill(start_color="A6F3A6", end_color="A6F3A6", fill_type="solid")
-
-    for ws in wb.worksheets:
-        ws.auto_filter.ref = ws.dimensions
-        for cell in ws[1]:
-            cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = header_fill
-            cell.alignment
+        for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x:
