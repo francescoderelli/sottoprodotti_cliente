@@ -5,6 +5,7 @@ from io import BytesIO
 from difflib import get_close_matches
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+import time
 
 st.set_page_config(page_title="Report Attività Clienti", layout="centered")
 
@@ -99,8 +100,11 @@ if file_att and file_tab:
 
     righe_output = []
     tutti_nomi_att = att["NomeSoggetto_n"].unique().tolist()
+    totale = len(tab)
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
 
-    for _, r in tab.iterrows():
+    for i, (_, r) in enumerate(tab.iterrows(), 1):
         cliente_norm = r["Cliente_n"]
         tipo_cli = r["Tipo"]
         sede_cli = r.get("Sede", "")
@@ -150,6 +154,10 @@ if file_att and file_tab:
                 "Tipo": tipo_cli
             })
 
+        # aggiornamento barra
+        progress_bar.progress(i / totale)
+        progress_text.text(f"🔎 Elaborazione clienti... ({i}/{totale})")
+
     # Attività non matchate → Amministratori
     clienti_norm = set(tab["Cliente_n"].dropna().unique())
     att_no_match = att[~att["NomeSoggetto_n"].isin(clienti_norm)].copy()
@@ -179,6 +187,10 @@ if file_att and file_tab:
     for c in ["PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"]:
         database[c] = database[c].apply(to_float_euro).apply(format_euro)
 
+    progress_bar.empty()
+    progress_text.empty()
+    st.success("✅ Analisi completata! Preparazione file Excel...")
+
     # =====================
     # Esporta Excel
     # =====================
@@ -191,4 +203,52 @@ if file_att and file_tab:
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         database.to_excel(writer, sheet_name="Database", index=False)
-        for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x:
+        for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x: str(x[0])):
+            nome = str(tipo).strip().capitalize() or "Senzatipo"
+            grp[col_order].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
+
+    # =====================
+    # Formattazione Excel
+    # =====================
+    output.seek(0)
+    wb = load_workbook(output)
+    thin = Side(border_style="thin", color="D9D9D9")
+    header_fill = PatternFill(start_color="004C97", end_color="004C97", fill_type="solid")
+    alt_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    red_fill = PatternFill(start_color="FF9999", end_color="FF9999", fill_type="solid")
+    green_fill = PatternFill(start_color="A6F3A6", end_color="A6F3A6", fill_type="solid")
+
+    for ws in wb.worksheets:
+        ws.auto_filter.ref = ws.dimensions
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=ws.max_column):
+            for cell in row:
+                if cell.row % 2 == 0:
+                    cell.fill = alt_fill
+                if cell.value == "Sì":
+                    cell.fill = red_fill
+                elif cell.value == "No":
+                    cell.fill = green_fill
+                cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        for col_cells in ws.columns:
+            max_len = max(len(str(c.value)) if c.value else 0 for c in col_cells)
+            ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 45)
+
+    if "Amministratori" in wb.sheetnames:
+        wb.active = wb.sheetnames.index("Amministratori")
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    st.success("🎉 Report completato e formattato!")
+    st.download_button(
+        label="📥 Scarica report_attivita_clienti.xlsx",
+        data=buf,
+        file_name="report_attivita_clienti.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
