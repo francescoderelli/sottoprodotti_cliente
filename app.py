@@ -6,7 +6,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 # ========================================
-# CONFIGURAZIONE STREAMLIT
+# CONFIGURAZIONE BASE
 # ========================================
 st.set_page_config(
     page_title="📊 Report Attività Clienti",
@@ -14,106 +14,82 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("📊 Generatore report attività clienti")
+st.title("📊 Generatore Report Attività Clienti")
 
 st.markdown("""
-### 🔹 Carica i tuoi file Excel
-
-**📁 File Attività**  
-Scaricalo dalla **Dashboard Commerciale → Sottoprodotti → Tab Grafici Attività**,  
-seleziona l’ultimo elenco prima del grafico *“Delibere”*.  
-➡️ Attendi il caricamento dei dati e premi **Crea Excel**.
+Carica i due file Excel generati dalla **Dashboard Commerciale** per ottenere automaticamente il report completo con attività, clienti e assegnazioni.
 
 ---
-
-**📁 File Clienti**  
-Scaricalo dalla **Dashboard Commerciale → Riepilogo Clienti**,  
-impostando il periodo **dal 2017 ad oggi**,  
-e scarica Excel da *“Tabella Clienti (no filtro data)”* in fondo alla pagina,  
-dopo aver atteso il caricamento dei dati.
 """)
 
 # ========================================
-# CARICAMENTO FILES
+# SEZIONE FILE ATTIVITÀ
 # ========================================
-file1 = st.file_uploader("📂 Carica il primo file (.xlsx)", type=["xlsx"])
-file2 = st.file_uploader("📂 Carica il secondo file (.xlsx)", type=["xlsx"])
+st.markdown("""
+### 📘 File Attività
 
-if file1 and file2:
-    st.success("✅ File caricati con successo! Ora rilevo automaticamente quale è Attività e quale è Tabella Clienti.")
+📍 **Dove trovarlo:**  
+Dashboard Commerciale → **Sottoprodotti → Tab Grafici Attività**  
+Seleziona **l’ultimo elenco prima del grafico “Delibere”**  
+➡️ Attendi il caricamento dei dati e premi **Crea Excel**
+""")
+
+file_att = st.file_uploader("📤 Seleziona il file delle attività (.xlsx)", type=["xlsx"], key="attivita")
+
+st.divider()
+
+# ========================================
+# SEZIONE FILE CLIENTI
+# ========================================
+st.markdown("""
+### 📗 File Clienti
+
+📍 **Dove trovarlo:**  
+Dashboard Commerciale → **Riepilogo Clienti**  
+Imposta il periodo **dal 2017 ad oggi**,  
+e scarica Excel da **“Tabella Clienti (no filtro data)”** in fondo alla pagina,  
+dopo aver atteso il caricamento dei dati.
+""")
+
+file_cli = st.file_uploader("📤 Seleziona la tabella clienti (.xlsx)", type=["xlsx"], key="clienti")
+
+st.divider()
+
+# ========================================
+# ELABORAZIONE FILE
+# ========================================
+if file_att and file_cli:
+    st.success("✅ File caricati correttamente. Pronto a generare il report.")
+
     if st.button("🚀 Genera report Excel"):
         with st.spinner("⏳ Elaborazione in corso..."):
 
-            # ----------------------------------------
-            # 1️⃣ Tenta di capire quale file è quale
-            # ----------------------------------------
-            def leggi_file_auto(file):
-                try:
-                    df = pd.read_excel(file)
-                    cols = [c.lower() for c in df.columns]
-                    if any("classe attività" in c for c in cols):
-                        return "attivita", df
-                except Exception:
-                    pass
+            # ----------------------------
+            # LETTURA FILE CLIENTI
+            # ----------------------------
+            tab = pd.read_excel(file_cli, header=None, skiprows=3)
+            tab.columns = tab.iloc[0]
+            tab = tab.drop(0).reset_index(drop=True)
+            tab = tab.rename(columns={c: str(c).strip() for c in tab.columns})
 
-                try:
-                    df = pd.read_excel(file, header=None, skiprows=3)
-                    df.columns = df.iloc[0]
-                    df = df.drop(0).reset_index(drop=True)
-                    cols = [str(c).lower() for c in df.columns]
-                    if any("cliente" in c for c in cols) or "tabella clienti" in cols[0]:
-                        return "clienti", df
-                except Exception:
-                    pass
+            # LETTURA FILE ATTIVITÀ
+            att = pd.read_excel(file_att)
+            att.columns = [c.strip() for c in att.columns]
 
-                return "sconosciuto", None
-
-            tipo1, df1 = leggi_file_auto(file1)
-            tipo2, df2 = leggi_file_auto(file2)
-
-            if tipo1 == "attivita" and tipo2 == "clienti":
-                att, tab = df1, df2
-            elif tipo1 == "clienti" and tipo2 == "attivita":
-                att, tab = df2, df1
-            else:
-                st.error("⚠️ Non riesco a riconoscere i file. Assicurati di caricare un file Attività e uno Clienti.")
-                st.stop()
-
-            # ----------------------------------------
-            # 2️⃣ Controllo colonne minime
-            # ----------------------------------------
-            colonne_attese_att = ["Anno","Mese","Classe Attività","Responsabile","NomeSoggetto"]
-            colonne_attese_tab = ["Cliente","Sede","Responsabile"]
-
-            if not all(any(col.lower() == c.lower() for c in att.columns) for col in colonne_attese_att):
-                st.error("⚠️ Il file Attività caricato non contiene tutte le colonne richieste.")
-                st.stop()
-
-            if not any("cliente" in str(c).lower() for c in tab.columns):
-                st.error("⚠️ Il file Tabella Clienti non sembra corretto.")
-                st.stop()
-
-            # ----------------------------------------
-            # 3️⃣ Normalizzazione nomi
-            # ----------------------------------------
-            def normalize_name(x):
+            # ----------------------------
+            # NORMALIZZAZIONE NOMI
+            # ----------------------------
+            def normalize(x):
                 if pd.isna(x): return ""
-                x = str(x).lower().replace(".", " ").replace("*", " ").replace(",", " ")
+                x = str(x).lower().replace(".", " ").replace("*", " ")
                 return " ".join(x.split())
 
-            att["NomeSoggetto_n"] = att["NomeSoggetto"].apply(normalize_name)
-            tab["Cliente_n"] = tab["Cliente"].apply(normalize_name)
+            att["NomeSoggetto_n"] = att["NomeSoggetto"].apply(normalize)
+            tab["Cliente_n"] = tab["Cliente"].apply(normalize)
 
-            if "Tipo" in tab.columns:
-                def fix_tipo(x):
-                    x = str(x).strip().capitalize()
-                    if x.lower().startswith("amministrator"):
-                        return "Amministratori"
-                    return x
-                tab["Tipo"] = tab["Tipo"].apply(fix_tipo)
-            else:
-                tab["Tipo"] = "Amministratori"
-
+            # ----------------------------
+            # PRIORITÀ ATTIVITÀ
+            # ----------------------------
             priorita = {
                 "04 RICHIESTE": 1,
                 "06 PREVENTIVI": 2,
@@ -125,45 +101,45 @@ if file1 and file2:
             }
             att["Priorita"] = att["Classe Attività"].map(priorita).fillna(999)
 
-            # ----------------------------------------
-            # 4️⃣ Match tra tabella e attività
-            # ----------------------------------------
-            righe_output = []
+            # ----------------------------
+            # MATCH E RIEPILOGO
+            # ----------------------------
+            risultati = []
 
             for _, r in tab.iterrows():
                 cliente_norm = r["Cliente_n"]
-                tipo_cli = r.get("Tipo", "Amministratori")
-                sede_cli = r.get("Sede", "")
-                resp_gest = r.get("Responsabile", "")
+                tipo = r.get("Tipo", "Amministratori")
+                sede = r.get("Sede", "")
+                resp = r.get("Responsabile", "")
 
                 att_cli = att[att["NomeSoggetto_n"] == cliente_norm]
-                if att_cli.empty and cliente_norm:
+                if att_cli.empty:
                     invertito = " ".join(cliente_norm.split()[::-1])
                     att_cli = att[att["NomeSoggetto_n"] == invertito]
 
                 if not att_cli.empty:
-                    att_cli = att_cli.sort_values(["Anno", "Mese", "Priorita"]).iloc[-1]
-                    anno_att, mese_att = int(att_cli["Anno"]), int(att_cli["Mese"])
-                    diff_mesi = (2025 - anno_att) * 12 + (11 - mese_att)
-                    da_ria = "Sì" if diff_mesi > 2 else "No"
-                    righe_output.append({
-                        "Sede": sede_cli,
-                        "Responsabile gestionale": resp_gest,
+                    att_sel = att_cli.sort_values(["Anno", "Mese", "Priorita"]).iloc[-1]
+                    anno, mese = int(att_sel["Anno"]), int(att_sel["Mese"])
+                    diff = (2025 - anno) * 12 + (11 - mese)
+                    da_ria = "Sì" if diff > 2 else "No"
+                    risultati.append({
+                        "Sede": sede,
+                        "Responsabile gestionale": resp,
                         "Cliente": r["Cliente"],
-                        "Anno": anno_att,
-                        "Mese": mese_att,
-                        "Ultima attività": att_cli["Classe Attività"],
+                        "Anno": anno,
+                        "Mese": mese,
+                        "Ultima attività": att_sel["Classe Attività"],
                         "Da riassegnare": da_ria,
                         "PREVENTIVATO€": r.get("PREVENTIVATO€", ""),
                         "DELIBERATO€": r.get("DELIBERATO€", ""),
                         "FATTURATO€": r.get("FATTURATO€", ""),
                         "INCASSATO€": r.get("INCASSATO€", ""),
-                        "Tipo": tipo_cli
+                        "Tipo": tipo
                     })
                 else:
-                    righe_output.append({
-                        "Sede": sede_cli,
-                        "Responsabile gestionale": resp_gest,
+                    risultati.append({
+                        "Sede": sede,
+                        "Responsabile gestionale": resp,
                         "Cliente": r["Cliente"],
                         "Anno": "",
                         "Mese": "",
@@ -173,109 +149,65 @@ if file1 and file2:
                         "DELIBERATO€": r.get("DELIBERATO€", ""),
                         "FATTURATO€": r.get("FATTURATO€", ""),
                         "INCASSATO€": r.get("INCASSATO€", ""),
-                        "Tipo": tipo_cli
+                        "Tipo": tipo
                     })
 
-            clienti_norm = set(tab["Cliente_n"].dropna().unique())
-            att_no_match = att[~att["NomeSoggetto_n"].isin(clienti_norm)].copy()
+            df = pd.DataFrame(risultati).replace({np.nan: ""})
 
-            if not att_no_match.empty:
-                att_no_match = (
-                    att_no_match.sort_values(["Anno", "Mese", "Priorita"])
-                    .groupby("NomeSoggetto", as_index=False)
-                    .last()
-                )
-                def da_ria_att(row):
-                    anno = int(row["Anno"])
-                    mese = int(row["Mese"])
-                    diff = (2025 - anno) * 12 + (11 - mese)
-                    return "Sì" if diff > 2 else "No"
-                att_no_match["Da riassegnare"] = att_no_match.apply(da_ria_att, axis=1)
-                att_no_match["Sede"] = att_no_match["Sede"]
-                att_no_match["Responsabile gestionale"] = att_no_match["Responsabile"]
-                att_no_match["Cliente"] = att_no_match["NomeSoggetto"]
-                att_no_match["Ultima attività"] = att_no_match["Classe Attività"]
-                att_no_match["Tipo"] = "Amministratori"
-                for c in ["PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"]:
-                    att_no_match[c] = ""
-                righe_output.extend(att_no_match[[
-                    "Sede","Responsabile gestionale","Cliente","Anno","Mese","Ultima attività",
-                    "Da riassegnare","PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€","Tipo"
-                ]].to_dict(orient="records"))
-
-            database = pd.DataFrame(righe_output).replace({np.nan: ""})
-
-            # ----------------------------------------
-            # 5️⃣ Formatting numerico
-            # ----------------------------------------
+            # ----------------------------
+            # FORMATTAZIONE EXCEL
+            # ----------------------------
             def format_euro(x):
                 if x == "" or pd.isna(x): return ""
                 try:
-                    val = float(str(x).replace("€","").replace(".","").replace(",","."))
+                    val = float(str(x).replace("€", "").replace(".", "").replace(",", "."))
                     return f"€ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 except:
                     return str(x)
 
             for c in ["PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"]:
-                if c in database.columns:
-                    database[c] = database[c].apply(format_euro)
+                if c in df.columns:
+                    df[c] = df[c].apply(format_euro)
 
-            # ----------------------------------------
-            # 6️⃣ Generazione Excel con formattazione
-            # ----------------------------------------
-            col_order = [
-                "Sede","Responsabile gestionale","Cliente","Anno","Mese",
-                "Ultima attività","Da riassegnare",
-                "PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"
-            ]
+            order = ["Sede","Responsabile gestionale","Cliente","Anno","Mese",
+                     "Ultima attività","Da riassegnare","PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"]
 
-            buffer = BytesIO()
-            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                database.to_excel(writer, sheet_name="Database", index=False)
-                for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x: str(x[0])):
-                    nome = str(tipo).strip().capitalize() or "Senzatipo"
-                    grp[col_order].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
+            buf = BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as w:
+                df.to_excel(w, sheet_name="Database", index=False)
+                for tipo, g in sorted(df.groupby("Tipo"), key=lambda x: str(x[0])):
+                    name = str(tipo).capitalize() or "Senzatipo"
+                    g[order].sort_values("Cliente").to_excel(w, sheet_name=name, index=False)
 
-            wb = load_workbook(buffer)
+            wb = load_workbook(buf)
             thin = Side(border_style="thin", color="D9D9D9")
-            header_fill = PatternFill(start_color="004C97", end_color="004C97", fill_type="solid")
-            alt_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-            red_fill = PatternFill(start_color="FF9999", end_color="FF9999", fill_type="solid")
-            green_fill = PatternFill(start_color="A6F3A6", end_color="A6F3A6", fill_type="solid")
+            red_fill = PatternFill(start_color="FFB6B6", end_color="FFB6B6", fill_type="solid")
+            green_fill = PatternFill(start_color="B7E1B0", end_color="B7E1B0", fill_type="solid")
+            blue_fill = PatternFill(start_color="004C97", end_color="004C97", fill_type="solid")
 
             for ws in wb.worksheets:
                 ws.auto_filter.ref = ws.dimensions
-                for cell in ws[1]:
-                    cell.font = Font(bold=True, color="FFFFFF")
-                    cell.fill = header_fill
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-
-                for row in ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=ws.max_column):
+                for c in ws[1]:
+                    c.font = Font(bold=True, color="FFFFFF")
+                    c.fill = blue_fill
+                    c.alignment = Alignment(horizontal="center")
+                for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
                     for cell in row:
-                        if cell.row % 2 == 0:
-                            cell.fill = alt_fill
-                        if cell.value == "Sì":
-                            cell.fill = red_fill
-                        elif cell.value == "No":
-                            cell.fill = green_fill
-                        cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
-                        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-                for col_cells in ws.columns:
-                    max_len = max(len(str(c.value)) if c.value else 0 for c in col_cells)
-                    ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 45)
+                        if cell.value == "Sì": cell.fill = red_fill
+                        elif cell.value == "No": cell.fill = green_fill
+                        cell.border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
             if "Amministratori" in wb.sheetnames:
                 wb.active = wb.sheetnames.index("Amministratori")
 
-            out_buffer = BytesIO()
-            wb.save(out_buffer)
-            out_buffer.seek(0)
+            out = BytesIO()
+            wb.save(out)
+            out.seek(0)
 
             st.success("✅ File Excel generato con successo!")
             st.download_button(
                 label="⬇️ Scarica il file Excel",
-                data=out_buffer,
+                data=out,
                 file_name="report_attivita_clienti.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
