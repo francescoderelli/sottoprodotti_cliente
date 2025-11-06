@@ -81,7 +81,7 @@ if file_att and file_cli:
             # ----------------------------
             def normalize(x):
                 if pd.isna(x): return ""
-                x = str(x).lower().replace(".", " ").replace("*", " ")
+                x = str(x).lower().replace(".", " ").replace("*", " ").replace(",", " ")
                 return " ".join(x.split())
 
             att["NomeSoggetto_n"] = att["NomeSoggetto"].apply(normalize)
@@ -155,7 +155,7 @@ if file_att and file_cli:
             df = pd.DataFrame(risultati).replace({np.nan: ""})
 
             # ----------------------------
-            # FORMATTAZIONE EXCEL
+            # FORMATTAZIONE NUMERI
             # ----------------------------
             def format_euro(x):
                 if x == "" or pd.isna(x): return ""
@@ -197,6 +197,12 @@ if file_att and file_cli:
                         elif cell.value == "No": cell.fill = green_fill
                         cell.border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
+                # 🔹 AUTO-LARGHEZZA COLONNE
+                for col_cells in ws.columns:
+                    max_len = max(len(str(c.value)) if c.value else 0 for c in col_cells)
+                    ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 45)
+
+            # 🔹 APERTURA AUTOMATICA SUL FOGLIO "Amministratori"
             if "Amministratori" in wb.sheetnames:
                 wb.active = wb.sheetnames.index("Amministratori")
 
