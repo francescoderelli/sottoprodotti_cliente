@@ -1,19 +1,18 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import time
 from io import BytesIO
-from difflib import get_close_matches
+from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from datetime import datetime
-import time
 
 # ==========================
 # ⚙️ CONFIGURAZIONE PAGINA
 # ==========================
 st.set_page_config(
     page_title="Report Attività Clienti - EdiliziAcrobatica",
-    page_icon="fav.png",   # favicon nella tab del browser
+    page_icon="fav.png",
     layout="centered"
 )
 
@@ -22,16 +21,9 @@ st.set_page_config(
 # ==========================
 st.markdown("""
     <style>
-        .block-container {
-            padding-top: 1rem;
-            padding-bottom: 0rem;
-        }
-        h1, h2, h3, p {
-            font-family: 'Segoe UI', sans-serif;
-        }
-        footer {
-            visibility: hidden;
-        }
+        .block-container { padding-top: 1rem; }
+        h1, h2, h3, p { font-family: 'Segoe UI', sans-serif; }
+        footer { visibility: hidden; }
         .intro {
             background-color: #004C97;
             color: white;
@@ -51,19 +43,13 @@ col1, col2, col3 = st.columns([1, 3, 1])
 with col2:
     st.image("logo.png", width=240)
 
-# Barra blu aziendale
 st.markdown("<div style='height:4px; background-color:#004C97; margin-bottom:25px;'></div>", unsafe_allow_html=True)
-
-# Titolo e sottotitolo
-st.markdown("<h1 style='text-align: center; color:#000;'>📊 Report Attività Clienti</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center; color:#000;'>📊 Report Attività Clienti</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align:center; color:gray; font-size:16px;'>Generatore report automatico – <b>Solo per uso interno EdiliziAcrobatica S.p.A.</b></p>", unsafe_allow_html=True)
 
 oggi = datetime.now().strftime("%d %B %Y")
-st.markdown(f"<p style='text-align:center; color:#004C97; font-size:14px; margin-top:-10px;'>🕒 Ultimo aggiornamento: {oggi} – Versione 1.0</p>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align:center; color:#004C97; font-size:14px;'>🕒 Ultimo aggiornamento: {oggi} – Versione 1.0</p>", unsafe_allow_html=True)
 
-# ==========================
-# 📘 INTRO COLORATA
-# ==========================
 st.markdown("<div class='intro'>Benvenuto nel generatore report attività clienti</div>", unsafe_allow_html=True)
 
 # ==========================
@@ -95,18 +81,19 @@ file_tab = st.file_uploader("Seleziona la tabella clienti (.xlsx)", type=["xlsx"
 # 🚀 ELABORAZIONE FILE
 # ==========================
 if file_att and file_tab:
-    st.markdown("---")
-    st.info("⏳ Elaborazione in corso... attendere qualche istante.")
+    progress_text = "⏳ Elaborazione in corso... attendere."
+    my_bar = st.progress(0, text=progress_text)
     start_time = time.time()
 
+    # 1️⃣ Lettura file
     att = pd.read_excel(file_att)
     tab_raw = pd.read_excel(file_tab, header=None, skiprows=3)
     tab_raw.columns = tab_raw.iloc[0]
     tab = tab_raw.drop(0).reset_index(drop=True)
-
     tab = tab.rename(columns={"macroarea": "Macroarea"})
+    my_bar.progress(10, text="📄 File caricati con successo...")
 
-    # Normalizza i nomi
+    # 2️⃣ Normalizzazione
     def normalize_name(x):
         if pd.isna(x): return ""
         x = str(x).lower().replace(".", " ").replace("*", " ").replace(",", " ")
@@ -115,7 +102,6 @@ if file_att and file_tab:
     att["NomeSoggetto_n"] = att["NomeSoggetto"].apply(normalize_name)
     tab["Cliente_n"] = tab["Cliente"].apply(normalize_name)
 
-    # Tipo
     if "Tipo" in tab.columns:
         def fix_tipo(x):
             x = str(x).strip().capitalize()
@@ -126,18 +112,16 @@ if file_att and file_tab:
     else:
         tab["Tipo"] = "Amministratori"
 
-    # Priorità
+    my_bar.progress(25, text="🔎 Normalizzazione nomi completata...")
+
+    # 3️⃣ Priorità
     priorita = {
-        "04 RICHIESTE": 1,
-        "06 PREVENTIVI": 2,
-        "03 INCONTRI": 3,
-        "07 DELIBERE": 4,
-        "05 SOPRALLUOGHI": 5,
-        "01 TELEFONATE": 6,
-        "02 APPUNTAMENTI": 7
+        "04 RICHIESTE": 1, "06 PREVENTIVI": 2, "03 INCONTRI": 3,
+        "07 DELIBERE": 4, "05 SOPRALLUOGHI": 5, "01 TELEFONATE": 6, "02 APPUNTAMENTI": 7
     }
     att["Priorita"] = att["Classe Attività"].map(priorita).fillna(999)
 
+    # 4️⃣ Match attività-clienti
     righe_output = []
     for _, r in tab.iterrows():
         cliente_norm = r["Cliente_n"]
@@ -185,9 +169,11 @@ if file_att and file_tab:
                 "Tipo": tipo_cli
             })
 
+    my_bar.progress(60, text="📊 Match attività completato...")
+
+    # 5️⃣ Crea DataFrame finale
     database = pd.DataFrame(righe_output).replace({np.nan: ""})
 
-    # Formatting
     def format_euro(x):
         if x == "" or pd.isna(x): return ""
         try:
@@ -200,24 +186,66 @@ if file_att and file_tab:
         if c in database.columns:
             database[c] = database[c].apply(format_euro)
 
-    # Salva
+    # 6️⃣ Scrivi Excel base
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         database.to_excel(writer, sheet_name="Database", index=False)
         for tipo, grp in sorted(database.groupby("Tipo"), key=lambda x: str(x[0])):
             nome = str(tipo).strip().capitalize() or "Senzatipo"
-            grp[["Sede", "Responsabile gestionale", "Cliente", "Anno", "Mese",
+            grp[
+                ["Sede", "Responsabile gestionale", "Cliente", "Anno", "Mese",
                  "Ultima attività", "Da riassegnare",
                  "PREVENTIVATO€", "DELIBERATO€", "FATTURATO€", "INCASSATO€"]
-                ].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
+            ].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
 
-    # Timer
+    my_bar.progress(75, text="🎨 Applicazione formattazione Excel...")
+
+    # 7️⃣ Formattazione workbook
+    wb = load_workbook(output)
+    thin = Side(border_style="thin", color="D9D9D9")
+    header_fill = PatternFill(start_color="004C97", end_color="004C97", fill_type="solid")
+    alt_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    red_fill = PatternFill(start_color="FF9999", end_color="FF9999", fill_type="solid")
+    green_fill = PatternFill(start_color="A6F3A6", end_color="A6F3A6", fill_type="solid")
+
+    for ws in wb.worksheets:
+        ws.auto_filter.ref = ws.dimensions
+
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=ws.max_column):
+            for cell in row:
+                if cell.row % 2 == 0:
+                    cell.fill = alt_fill
+                if cell.value == "Sì":
+                    cell.fill = red_fill
+                elif cell.value == "No":
+                    cell.fill = green_fill
+                cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for col_cells in ws.columns:
+            max_len = max(len(str(c.value)) if c.value else 0 for c in col_cells)
+            ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 2, 45)
+
+    if "Amministratori" in wb.sheetnames:
+        wb.active = wb.sheetnames.index("Amministratori")
+
+    final_output = BytesIO()
+    wb.save(final_output)
+    final_output.seek(0)
+
+    my_bar.progress(100, text="✅ File pronto per il download!")
+
     elapsed = round(time.time() - start_time, 2)
-    st.success(f"✅ File elaborato correttamente in {elapsed} secondi!")
+    st.success(f"✅ File elaborato e formattato in {elapsed} secondi!")
 
     st.download_button(
-        label="📥 Scarica il report Excel",
-        data=output.getvalue(),
+        label="📥 Scarica il report Excel formattato",
+        data=final_output,
         file_name="report_attivita_clienti.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
