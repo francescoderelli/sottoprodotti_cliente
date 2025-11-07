@@ -1,9 +1,3 @@
-# ==================================================
-# 📊 Report Attività Clienti – EdiliziAcrobatica
-# Versione 1.1 • Corpo logico 1.0 invariato
-# + Controllo file + Barra avanzamento
-# ==================================================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -11,90 +5,64 @@ from io import BytesIO
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 import time
+from PIL import Image
 
-# ======================
-# 1️⃣ CONFIGURAZIONE PAGINA
-# ======================
-st.set_page_config(
-    page_title="Report Attività Clienti - EdiliziAcrobatica",
-    page_icon="fav.png",
-    layout="centered"
-)
+# =========================
+# Configurazione pagina
+# =========================
+st.set_page_config(page_title="Report Attività Clienti", page_icon="📊")
 
-# ======================
-# 2️⃣ HEADER E LOGO
-# ======================
-col1, col2, col3 = st.columns([1,3,1])
+st.title("📊 Generatore Report Attività Clienti")
+st.caption("Versione base – EdiliziAcrobatica S.p.A.")
+
+# =========================
+# Istruzioni e caricamento file con pulsanti Info
+# =========================
+col1, col2 = st.columns([10, 1])
+with col1:
+    st.markdown("""
+    ### 📘 File Attività  
+    Scaricalo dalla **Dashboard Commerciale → Sottoprodotti → Tab Grafici Attività**,  
+    scendi fino in fondo alla pagina, attendi il caricamento dei dati e seleziona **l’ultimo elenco prima del grafico “Delibere”**.  
+    ➡️ **Crea Excel**.
+    """)
 with col2:
-    st.image("logo.png", width=500)
+    if st.button("ℹ️", key="info_att"):
+        st.image("attività.png", caption="Esempio: dove scaricare il file delle attività", use_container_width=True)
 
-st.markdown(
-    "<h2 style='text-align:center; color:#004C97;'>Report Attività Clienti</h2>",
-    unsafe_allow_html=True
-)
-st.caption("Sistema interno di analisi clienti – EdiliziAcrobatica S.p.A.")
-
-# ======================
-# 3️⃣ ISTRUZIONI E UPLOAD FILE
-# ======================
-st.markdown("""
----
-### 📘 File Attività
-**Scaricalo dalla Dashboard Commerciale → Sottoprodotti → Tab Grafici Attività**  
-➡️ Seleziona **l’ultimo elenco prima del grafico “Delibere”**  
-🕒 Attendi il caricamento completo dei dati e premi **Crea Excel**
-""")
 file_att = st.file_uploader("📂 Seleziona il file delle attività (.xlsx)", type=["xlsx"])
 
-st.markdown("""
-### 📗 File Clienti
-**Scaricalo dalla Dashboard Commerciale → Riepilogo Clienti**  
-🗓️ Imposta il periodo **dal 2017 ad oggi**  
-⬇️ Scarica Excel da **“Tabella Clienti (no filtro data)”** in fondo alla pagina  
-📄 Dopo aver atteso il caricamento dei dati.
-""")
+col3, col4 = st.columns([10, 1])
+with col3:
+    st.markdown("""
+    ### 📗 File Clienti  
+    Scaricalo dalla **Dashboard Commerciale → Riepilogo Clienti**,  
+    imposta il periodo **dal 2017 ad oggi**,  
+    e scarica Excel da **“Tabella Clienti (no filtro data)”** in fondo alla pagina.
+    """)
+with col4:
+    if st.button("ℹ️", key="info_cli"):
+        st.image("clienti.png", caption="Esempio: dove scaricare il file dei clienti", use_container_width=True)
+
 file_tab = st.file_uploader("📂 Seleziona la tabella clienti (.xlsx)", type=["xlsx"])
 
-# ======================
-# 4️⃣ CONTROLLO STRUTTURA FILE
-# ======================
-import io
-
+# =========================
+# Avvio elaborazione
+# =========================
 if file_att and file_tab:
-    try:
-        # Controllo file attività
-        att_check = pd.read_excel(file_att, nrows=5)
-        att_cols = ["Anno", "Mese", "Classe Attività", "Responsabile", "NomeSoggetto"]
-        att_valid = all(col in att_check.columns for col in att_cols)
-
-        # Controllo file clienti → cella A1
-        tab_title = pd.read_excel(file_tab, header=None, nrows=1).iloc[0, 0]
-        tab_valid = isinstance(tab_title, str) and "Tabella Clienti" in tab_title
-
-        if not att_valid or not tab_valid:
-            st.error("❌ Struttura file non conforme.\n\nCarica i file originali scaricati dalla Dashboard Commerciale.")
-            st.stop()
-
-        else:
-            st.success("✅ Struttura dei file corretta! Puoi procedere con l'elaborazione.")
-
-    except Exception as e:
-        st.error(f"⚠️ Errore nella lettura dei file: {e}")
-        st.stop()
-    # ======================
-    # 5️⃣ AVVIO ELABORAZIONE (CORPO 1.0 INVARIATO)
-    # ======================
     start_time = time.time()
-    progress_bar = st.progress(0)
-    status_text = st.empty()
     st.info("⏳ Elaborazione in corso...")
 
+    # 1. Leggo i file
     att = pd.read_excel(file_att)
     tab_raw = pd.read_excel(file_tab, header=None, skiprows=3)
     tab_raw.columns = tab_raw.iloc[0]
     tab = tab_raw.drop(0).reset_index(drop=True)
+
+    # normalizzo nome colonna Macroarea
     tab = tab.rename(columns={"macroarea": "Macroarea"})
 
+    # 2. Normalizzazione nomi
     def normalize_name(x):
         if pd.isna(x): return ""
         x = str(x).lower().replace(".", " ").replace("*", " ").replace(",", " ")
@@ -103,6 +71,7 @@ if file_att and file_tab:
     att["NomeSoggetto_n"] = att["NomeSoggetto"].apply(normalize_name)
     tab["Cliente_n"] = tab["Cliente"].apply(normalize_name)
 
+    # Tipo (colonna P)
     if "Tipo" in tab.columns:
         def fix_tipo(x):
             x = str(x).strip().capitalize()
@@ -113,6 +82,7 @@ if file_att and file_tab:
     else:
         tab["Tipo"] = "Amministratori"
 
+    # Priorità
     priorita = {
         "04 RICHIESTE": 1,
         "06 PREVENTIVI": 2,
@@ -124,10 +94,9 @@ if file_att and file_tab:
     }
     att["Priorita"] = att["Classe Attività"].map(priorita).fillna(999)
 
+    # 3. Match principale
     righe_output = []
-    totale = len(tab)
-
-    for i, (_, r) in enumerate(tab.iterrows(), 1):
+    for _, r in tab.iterrows():
         cliente_norm = r["Cliente_n"]
         tipo_cli = r["Tipo"]
         sede_cli = r.get("Sede", "")
@@ -173,12 +142,7 @@ if file_att and file_tab:
                 "Tipo": tipo_cli
             })
 
-        if i % 20 == 0 or i == totale:
-            progress_bar.progress(i/totale)
-            status_text.text(f"Elaborazione clienti: {int(i/totale*100)}%")
-
-    status_text.text("Analisi attività senza cliente...")
-
+    # 4. Attività senza cliente → Amministratori
     clienti_norm = set(tab["Cliente_n"].dropna().unique())
     att_no_match = att[~att["NomeSoggetto_n"].isin(clienti_norm)].copy()
 
@@ -205,12 +169,12 @@ if file_att and file_tab:
         for c in ["PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"]:
             att_no_match[c] = ""
 
-        righe_output.extend(att_no_match[[
+        righe_output.extend(att_no_match[[ 
             "Sede","Responsabile gestionale","Cliente","Anno","Mese","Ultima attività",
             "Da riassegnare","PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€","Tipo"
         ]].to_dict(orient="records"))
 
-    # 6️⃣ Esporta Excel + formattazione
+    # 5. DataFrame finale
     database = pd.DataFrame(righe_output).replace({np.nan: ""})
 
     def to_float_euro(x):
@@ -238,6 +202,7 @@ if file_att and file_tab:
         if c in database.columns:
             database[c] = database[c].apply(to_float_euro).apply(format_euro)
 
+    # 6. Esporta Excel
     output = BytesIO()
     col_order = [
         "Sede","Responsabile gestionale","Cliente","Anno","Mese",
@@ -251,6 +216,7 @@ if file_att and file_tab:
             nome = str(tipo).strip().capitalize() or "Senzatipo"
             grp[col_order].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
 
+    # 7. Formattazione
     output.seek(0)
     wb = load_workbook(output)
     thin = Side(border_style="thin", color="D9D9D9")
@@ -290,9 +256,6 @@ if file_att and file_tab:
     minuti = int(elapsed // 60)
     secondi = int(elapsed % 60)
 
-    progress_bar.empty()
-    status_text.empty()
-
     st.success(f"✅ Report completato in {minuti} min {secondi} sec!")
     st.download_button(
         label="📥 Scarica report_attivita_clienti.xlsx",
@@ -301,13 +264,11 @@ if file_att and file_tab:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# ======================
-# 6️⃣ FOOTER
-# ======================
+# =========================
+# Footer
+# =========================
 st.markdown("""
 ---
-<div style='text-align:center; font-size:13px; color:gray;'>
-© 2025 <b>EdiliziAcrobatica S.p.A.</b> – Uso interno riservato<br>
-<a href='https://www.ediliziacrobatica.com' target='_blank' style='color:#004C97; text-decoration:none;'>www.ediliziacrobatica.com</a>
-</div>
-""", unsafe_allow_html=True)
+© 2025 **EdiliziAcrobatica S.p.A.**  
+Tutti i diritti riservati • Uso interno vietato alla diffusione esterna.
+""")
