@@ -10,11 +10,15 @@ import time
 # Configurazione pagina
 # =========================
 st.set_page_config(
-    page_title="Report Attività Clienti",
-    page_icon="📊",
+    page_title="Report Attività Clienti - EdiliziAcrobatica",
+    page_icon="fav.png",
     layout="centered"
 )
 
+# =========================
+# Header con logo
+# =========================
+st.image("logo.png", width=500)
 st.title("📊 Generatore Report Attività Clienti")
 st.caption("Versione 1.0 – EdiliziAcrobatica S.p.A. • Solo uso interno")
 
@@ -31,7 +35,7 @@ scendi fino in fondo alla pagina, **attendi il caricamento dei dati** e selezion
 """)
 
 st.markdown(
-    "[📸 Vedi esempio (File Attività)](https://raw.githubusercontent.com/francescoderelli/sottoprodotti_cliente/main/attività.png){:target='_blank'}",
+    "[📸 Vedi esempio (File Attività)](https://raw.githubusercontent.com/francescoderelli/sottoprodotti_cliente/main/attività.png)",
     unsafe_allow_html=True
 )
 
@@ -45,7 +49,7 @@ e scarica Excel da **“Tabella Clienti (no filtro data)”** in fondo alla pagi
 """)
 
 st.markdown(
-    "[📸 Vedi esempio (File Clienti)](https://raw.githubusercontent.com/francescoderelli/sottoprodotti_cliente/main/clienti.png){:target='_blank'}",
+    "[📸 Vedi esempio (File Clienti)](https://raw.githubusercontent.com/francescoderelli/sottoprodotti_cliente/main/clienti.png)",
     unsafe_allow_html=True
 )
 
@@ -54,18 +58,20 @@ file_tab = st.file_uploader("📂 Seleziona la tabella clienti (.xlsx)", type=["
 st.markdown("---")
 
 # =========================
-# Elaborazione
+# Elaborazione principale (versione 1.0 invariata)
 # =========================
 if file_att and file_tab:
     start_time = time.time()
     st.info("⏳ Elaborazione in corso... Attendere il completamento...")
 
+    # 1. Lettura file
     att = pd.read_excel(file_att)
     tab_raw = pd.read_excel(file_tab, header=None, skiprows=3)
     tab_raw.columns = tab_raw.iloc[0]
     tab = tab_raw.drop(0).reset_index(drop=True)
     tab = tab.rename(columns={"macroarea": "Macroarea"})
 
+    # 2. Normalizzazione nomi
     def normalize_name(x):
         if pd.isna(x): return ""
         x = str(x).lower().replace(".", " ").replace("*", " ").replace(",", " ")
@@ -74,6 +80,7 @@ if file_att and file_tab:
     att["NomeSoggetto_n"] = att["NomeSoggetto"].apply(normalize_name)
     tab["Cliente_n"] = tab["Cliente"].apply(normalize_name)
 
+    # 3. Tipo cliente
     if "Tipo" in tab.columns:
         def fix_tipo(x):
             x = str(x).strip().capitalize()
@@ -84,6 +91,7 @@ if file_att and file_tab:
     else:
         tab["Tipo"] = "Amministratori"
 
+    # 4. Priorità
     priorita = {
         "04 RICHIESTE": 1,
         "06 PREVENTIVI": 2,
@@ -95,6 +103,7 @@ if file_att and file_tab:
     }
     att["Priorita"] = att["Classe Attività"].map(priorita).fillna(999)
 
+    # 5. Match principale
     righe_output = []
     totale = len(tab)
     progress_text = st.empty()
@@ -174,6 +183,7 @@ if file_att and file_tab:
     progress_bar.empty()
     progress_text.empty()
 
+    # 6. Formattazione valori euro
     database = pd.DataFrame(righe_output).replace({np.nan: ""})
 
     def to_float_euro(x):
@@ -201,6 +211,7 @@ if file_att and file_tab:
         if c in database.columns:
             database[c] = database[c].apply(to_float_euro).apply(format_euro)
 
+    # 7. Creazione Excel
     output = BytesIO()
     col_order = [
         "Sede","Responsabile gestionale","Cliente","Anno","Mese",
@@ -214,6 +225,7 @@ if file_att and file_tab:
             nome = str(tipo).strip().capitalize() or "Senzatipo"
             grp[col_order].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
 
+    # 8. Styling Excel
     output.seek(0)
     wb = load_workbook(output)
     thin = Side(border_style="thin", color="D9D9D9")
