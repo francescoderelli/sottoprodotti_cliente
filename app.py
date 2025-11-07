@@ -58,25 +58,29 @@ file_tab = st.file_uploader("📂 Seleziona la tabella clienti (.xlsx)", type=["
 # ======================
 # 4️⃣ CONTROLLO STRUTTURA FILE
 # ======================
+import io
+
 if file_att and file_tab:
-    st.info("🧩 Verifica struttura file...")
-
     try:
+        # Controllo file attività
         att_check = pd.read_excel(file_att, nrows=5)
-        tab_check = pd.read_excel(file_tab, header=None, skiprows=3, nrows=5)
+        att_cols = ["Anno", "Mese", "Classe Attività", "Responsabile", "NomeSoggetto"]
+        att_valid = all(col in att_check.columns for col in att_cols)
 
-        att_cols = ["Anno","Mese","Classe Attività","Responsabile","NomeSoggetto"]
-        tab_valid = tab_check.iloc[4].astype(str).str.contains("Cliente", case=False, na=False).any()
+        # Controllo file clienti → cella A1
+        tab_title = pd.read_excel(file_tab, header=None, nrows=1).iloc[0, 0]
+        tab_valid = isinstance(tab_title, str) and "Tabella Clienti" in tab_title
 
-        if all(col in att_check.columns for col in att_cols) and tab_valid:
-            st.success("✅ Struttura file corretta!")
-        else:
-            st.error("❌ Struttura file non conforme. Carica i file originali scaricati dalla Dashboard Commerciale.")
+        if not att_valid or not tab_valid:
+            st.error("❌ Struttura file non conforme.\n\nCarica i file originali scaricati dalla Dashboard Commerciale.")
             st.stop()
-    except Exception as e:
-        st.error(f"Errore durante la verifica file: {e}")
-        st.stop()
 
+        else:
+            st.success("✅ Struttura dei file corretta! Puoi procedere con l'elaborazione.")
+
+    except Exception as e:
+        st.error(f"⚠️ Errore nella lettura dei file: {e}")
+        st.stop()
     # ======================
     # 5️⃣ AVVIO ELABORAZIONE (CORPO 1.0 INVARIATO)
     # ======================
