@@ -5,64 +5,67 @@ from io import BytesIO
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 import time
-from PIL import Image
 
 # =========================
 # Configurazione pagina
 # =========================
-st.set_page_config(page_title="Report Attività Clienti", page_icon="📊")
+st.set_page_config(
+    page_title="Report Attività Clienti",
+    page_icon="📊",
+    layout="centered"
+)
 
 st.title("📊 Generatore Report Attività Clienti")
-st.caption("Versione base – EdiliziAcrobatica S.p.A.")
+st.caption("Versione 1.0 – EdiliziAcrobatica S.p.A. • Solo uso interno")
+
+st.markdown("---")
 
 # =========================
-# Istruzioni e caricamento file con pulsanti Info
+# Istruzioni e caricamento file con immagini informative
 # =========================
-col1, col2 = st.columns([10, 1])
-with col1:
-    st.markdown("""
-    ### 📘 File Attività  
-    Scaricalo dalla **Dashboard Commerciale → Sottoprodotti → Tab Grafici Attività**,  
-    scendi fino in fondo alla pagina, attendi il caricamento dei dati e seleziona **l’ultimo elenco prima del grafico “Delibere”**.  
-    ➡️ **Crea Excel**.
-    """)
-with col2:
-    if st.button("ℹ️", key="info_att"):
-        st.image("attività.png", caption="Esempio: dove scaricare il file delle attività", use_container_width=True)
+st.markdown("""
+### 📘 File Attività  
+Scaricalo dalla **Dashboard Commerciale → Sottoprodotti → Tab Grafici Attività**,  
+scendi fino in fondo alla pagina, **attendi il caricamento dei dati** e seleziona **l’ultimo elenco prima del grafico “Delibere”**.  
+➡️ Premi **Crea Excel** per generare il file.
+""")
+
+st.markdown(
+    "[📸 Vedi esempio (File Attività)](https://raw.githubusercontent.com/francescoderelli/sottoprodotti_cliente/main/attività.png){:target='_blank'}",
+    unsafe_allow_html=True
+)
 
 file_att = st.file_uploader("📂 Seleziona il file delle attività (.xlsx)", type=["xlsx"])
 
-col3, col4 = st.columns([10, 1])
-with col3:
-    st.markdown("""
-    ### 📗 File Clienti  
-    Scaricalo dalla **Dashboard Commerciale → Riepilogo Clienti**,  
-    imposta il periodo **dal 2017 ad oggi**,  
-    e scarica Excel da **“Tabella Clienti (no filtro data)”** in fondo alla pagina.
-    """)
-with col4:
-    if st.button("ℹ️", key="info_cli"):
-        st.image("clienti.png", caption="Esempio: dove scaricare il file dei clienti", use_container_width=True)
+st.markdown("""
+### 📗 File Clienti  
+Scaricalo dalla **Dashboard Commerciale → Riepilogo Clienti**,  
+imposta il periodo **dal 2017 ad oggi**,  
+e scarica Excel da **“Tabella Clienti (no filtro data)”** in fondo alla pagina, dopo aver atteso il caricamento dei dati.
+""")
+
+st.markdown(
+    "[📸 Vedi esempio (File Clienti)](https://raw.githubusercontent.com/francescoderelli/sottoprodotti_cliente/main/clienti.png){:target='_blank'}",
+    unsafe_allow_html=True
+)
 
 file_tab = st.file_uploader("📂 Seleziona la tabella clienti (.xlsx)", type=["xlsx"])
 
+st.markdown("---")
+
 # =========================
-# Avvio elaborazione
+# Elaborazione
 # =========================
 if file_att and file_tab:
     start_time = time.time()
-    st.info("⏳ Elaborazione in corso...")
+    st.info("⏳ Elaborazione in corso... Attendere il completamento...")
 
-    # 1. Leggo i file
     att = pd.read_excel(file_att)
     tab_raw = pd.read_excel(file_tab, header=None, skiprows=3)
     tab_raw.columns = tab_raw.iloc[0]
     tab = tab_raw.drop(0).reset_index(drop=True)
-
-    # normalizzo nome colonna Macroarea
     tab = tab.rename(columns={"macroarea": "Macroarea"})
 
-    # 2. Normalizzazione nomi
     def normalize_name(x):
         if pd.isna(x): return ""
         x = str(x).lower().replace(".", " ").replace("*", " ").replace(",", " ")
@@ -71,7 +74,6 @@ if file_att and file_tab:
     att["NomeSoggetto_n"] = att["NomeSoggetto"].apply(normalize_name)
     tab["Cliente_n"] = tab["Cliente"].apply(normalize_name)
 
-    # Tipo (colonna P)
     if "Tipo" in tab.columns:
         def fix_tipo(x):
             x = str(x).strip().capitalize()
@@ -82,7 +84,6 @@ if file_att and file_tab:
     else:
         tab["Tipo"] = "Amministratori"
 
-    # Priorità
     priorita = {
         "04 RICHIESTE": 1,
         "06 PREVENTIVI": 2,
@@ -94,9 +95,12 @@ if file_att and file_tab:
     }
     att["Priorita"] = att["Classe Attività"].map(priorita).fillna(999)
 
-    # 3. Match principale
     righe_output = []
-    for _, r in tab.iterrows():
+    totale = len(tab)
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+
+    for i, (_, r) in enumerate(tab.iterrows(), 1):
         cliente_norm = r["Cliente_n"]
         tipo_cli = r["Tipo"]
         sede_cli = r.get("Sede", "")
@@ -142,7 +146,10 @@ if file_att and file_tab:
                 "Tipo": tipo_cli
             })
 
-    # 4. Attività senza cliente → Amministratori
+        if i % 10 == 0 or i == totale:
+            progress_bar.progress(i / totale)
+            progress_text.text(f"📊 Elaborazione clienti... {i}/{totale}")
+
     clienti_norm = set(tab["Cliente_n"].dropna().unique())
     att_no_match = att[~att["NomeSoggetto_n"].isin(clienti_norm)].copy()
 
@@ -152,29 +159,21 @@ if file_att and file_tab:
             .groupby("NomeSoggetto", as_index=False)
             .last()
         )
-
-        def da_ria_att(row):
-            anno = int(row["Anno"])
-            mese = int(row["Mese"])
-            diff = (2025 - anno) * 12 + (11 - mese)
-            return "Sì" if diff > 2 else "No"
-
-        att_no_match["Da riassegnare"] = att_no_match.apply(da_ria_att, axis=1)
-        att_no_match["Sede"] = att_no_match["Sede"]
+        att_no_match["Da riassegnare"] = "Sì"
         att_no_match["Responsabile gestionale"] = att_no_match["Responsabile"]
         att_no_match["Cliente"] = att_no_match["NomeSoggetto"]
         att_no_match["Ultima attività"] = att_no_match["Classe Attività"]
         att_no_match["Tipo"] = "Amministratori"
-
         for c in ["PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€"]:
             att_no_match[c] = ""
-
-        righe_output.extend(att_no_match[[ 
+        righe_output.extend(att_no_match[[
             "Sede","Responsabile gestionale","Cliente","Anno","Mese","Ultima attività",
             "Da riassegnare","PREVENTIVATO€","DELIBERATO€","FATTURATO€","INCASSATO€","Tipo"
         ]].to_dict(orient="records"))
 
-    # 5. DataFrame finale
+    progress_bar.empty()
+    progress_text.empty()
+
     database = pd.DataFrame(righe_output).replace({np.nan: ""})
 
     def to_float_euro(x):
@@ -202,7 +201,6 @@ if file_att and file_tab:
         if c in database.columns:
             database[c] = database[c].apply(to_float_euro).apply(format_euro)
 
-    # 6. Esporta Excel
     output = BytesIO()
     col_order = [
         "Sede","Responsabile gestionale","Cliente","Anno","Mese",
@@ -216,7 +214,6 @@ if file_att and file_tab:
             nome = str(tipo).strip().capitalize() or "Senzatipo"
             grp[col_order].sort_values("Cliente").to_excel(writer, sheet_name=nome, index=False)
 
-    # 7. Formattazione
     output.seek(0)
     wb = load_workbook(output)
     thin = Side(border_style="thin", color="D9D9D9")
@@ -267,8 +264,5 @@ if file_att and file_tab:
 # =========================
 # Footer
 # =========================
-st.markdown("""
----
-© 2025 **EdiliziAcrobatica S.p.A.**  
-Tutti i diritti riservati • Uso interno vietato alla diffusione esterna.
-""")
+st.markdown("---")
+st.caption("© 2025 EdiliziAcrobatica S.p.A. – Tutti i diritti riservati • Uso interno")
