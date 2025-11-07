@@ -66,7 +66,7 @@ if file_att and file_tab:
         tab_check = pd.read_excel(file_tab, header=None, skiprows=3, nrows=5)
 
         att_cols = ["Anno","Mese","Classe Attività","Responsabile","NomeSoggetto"]
-        tab_valid = tab_check.iloc[3].astype(str).str.contains("Cliente", case=False, na=False).any()
+        tab_valid = tab_check.iloc[4].astype(str).str.contains("Cliente", case=False, na=False).any()
 
         if all(col in att_check.columns for col in att_cols) and tab_valid:
             st.success("✅ Struttura file corretta!")
