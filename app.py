@@ -58,10 +58,32 @@ file_tab = st.file_uploader("📂 Seleziona la tabella clienti (.xlsx)", type=["
 st.markdown("---")
 
 # =========================
-# Elaborazione principale (versione 1.0 invariata)
+# Elaborazione principale (versione 1.0 invariata + controllo struttura)
 # =========================
 if file_att and file_tab:
     start_time = time.time()
+
+    # === Verifica struttura file Attività ===
+    try:
+        check_att = pd.read_excel(file_att, nrows=5)
+        if "NomeSoggetto" not in check_att.columns:
+            st.error("❌ File Attività non conforme. Carica il file corretto scaricato dalla Dashboard Commerciale.")
+            st.stop()
+    except Exception:
+        st.error("❌ Errore nella lettura del file Attività.")
+        st.stop()
+
+    # === Verifica struttura file Clienti ===
+    try:
+        check_cli = pd.read_excel(file_tab, header=None, nrows=1)
+        if not any("Tabella Clienti (no filtro data)" in str(v) for v in check_cli.iloc[0].values):
+            st.error("❌ File Clienti non conforme. Carica il file originale 'Tabella Clienti (no filtro data)'.")
+            st.stop()
+    except Exception:
+        st.error("❌ Errore nella lettura del file Clienti.")
+        st.stop()
+
+    # Se i file passano il controllo:
     st.info("⏳ Elaborazione in corso... Attendere il completamento...")
 
     # 1. Lettura file
